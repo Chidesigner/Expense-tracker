@@ -8,7 +8,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [expenses, setExpenses] = useState([]);
-  
+
   // Form states
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
@@ -47,7 +47,7 @@ function App() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!title || !amount || !date) {
       alert('Please fill all fields');
       return;
@@ -71,7 +71,7 @@ function App() {
         createdAt: new Date()
       });
     }
-    
+
     // Reset form
     setTitle('');
     setAmount('');
@@ -79,7 +79,7 @@ function App() {
     setDate('');
     setEditingId(null);
     setShowForm(false);
-    
+
     loadExpenses();
   };
 
@@ -128,8 +128,8 @@ function App() {
     <div className="app">
       <header>
         <div>
-          <h1>Expense Tracker</h1>
-          <p>Track your spending smartly</p>
+          <h1>Fintrax</h1>
+          <p>Track it. Control it.</p>
         </div>
         <button onClick={handleLogout} className="logout-btn">Logout</button>
       </header>
