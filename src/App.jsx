@@ -15,7 +15,8 @@ function App() {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('Food');
   const [date, setDate] = useState('');
-  const [editingId, setEditingId] = useState(null); // Track which expense we're editing
+  const [notes, setNotes] = useState('');
+  const [editingId, setEditingId] = useState(null);
 
   const categories = ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Other'];
 
@@ -57,7 +58,8 @@ function App() {
       title,
       amount: parseFloat(amount),
       category,
-      date
+      date,
+      notes
     };
 
     if (editingId) {
@@ -77,6 +79,7 @@ function App() {
     setAmount('');
     setCategory('Food');
     setDate('');
+    setNotes('');
     setEditingId(null);
     setShowForm(false);
 
@@ -88,6 +91,7 @@ function App() {
     setAmount(expense.amount.toString());
     setCategory(expense.category);
     setDate(expense.date);
+    setNotes(expense.notes || '');  // ← CHANGED THIS LINE
     setEditingId(expense.id);
     setShowForm(true);
   };
@@ -97,6 +101,7 @@ function App() {
     setAmount('');
     setCategory('Food');
     setDate('');
+    setNotes('');
     setEditingId(null);
     setShowForm(false);
   };
@@ -175,6 +180,15 @@ function App() {
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
+
+            {/* ← ADDED NOTES FIELD */}
+            <textarea
+              placeholder="Add a note (optional)"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+            />
+
             <div className="form-buttons">
               <button type="submit">{editingId ? 'Update' : 'Save'} Expense</button>
               {editingId && (
@@ -197,6 +211,7 @@ function App() {
                   <h4>{exp.title}</h4>
                   <span className="category">{exp.category}</span>
                   <p className="date">{exp.date}</p>
+                  {exp.notes && <p className="notes">{exp.notes}</p>}  {/* ← ADDED THIS LINE */}
                 </div>
                 <div className="expense-actions">
                   <p className="expense-amount">₦{exp.amount.toFixed(2)}</p>
