@@ -86,15 +86,37 @@ function Login() {
       }
       // If successful, Firebase automatically redirects (handled in App.jsx)
     } catch (error) {
+      // DEBUG: Log the actual error (remove after testing)
+      console.log('Firebase Error Code:', error.code);
+      console.log('Firebase Error Message:', error.message);
+      
       // Show user-friendly error messages
-      if (error.code === 'auth/user-not-found') {
-        setMessage('No account found with this email');
-      } else if (error.code === 'auth/wrong-password') {
-        setMessage('Incorrect password');
+      // UPDATED: Handle new Firebase error codes
+      if (error.code === 'auth/invalid-credential' || 
+          error.code === 'auth/invalid-login-credentials' ||
+          error.code === 'auth/user-not-found' || 
+          error.code === 'auth/wrong-password') {
+        // SECURITY: Use generic message to prevent user enumeration
+        setMessage('Invalid email or password');
+        
       } else if (error.code === 'auth/email-already-in-use') {
         setMessage('Email already registered');
+        
+      } else if (error.code === 'auth/weak-password') {
+        setMessage('Password should be at least 6 characters');
+        
+      } else if (error.code === 'auth/invalid-email') {
+        setMessage('Please enter a valid email address');
+        
+      } else if (error.code === 'auth/too-many-requests') {
+        setMessage('Too many failed attempts. Please try again later.');
+        
+      } else if (error.code === 'auth/network-request-failed') {
+        setMessage('Network error. Check your internet connection.');
+        
       } else {
         setMessage('An error occurred. Please try again.');
+        console.error('Unhandled Firebase error:', error);
       }
     }
 
@@ -112,7 +134,18 @@ function Login() {
       await sendPasswordResetEmail(auth, email);
       setMessage('Password reset email sent! Check your inbox.');
     } catch (error) {
-      setMessage('Could not send reset email. Please try again.');
+      console.log('Password reset error:', error.code);
+      
+      // SECURITY: Don't reveal if email exists or not
+      if (error.code === 'auth/user-not-found') {
+        setMessage('If an account exists with this email, a reset link has been sent.');
+      } else if (error.code === 'auth/invalid-email') {
+        setMessage('Please enter a valid email address');
+      } else if (error.code === 'auth/too-many-requests') {
+        setMessage('Too many requests. Please try again later.');
+      } else {
+        setMessage('Could not send reset email. Please try again.');
+      }
     }
   };
 
