@@ -86,12 +86,8 @@ function Login() {
       }
       // If successful, Firebase automatically redirects (handled in App.jsx)
     } catch (error) {
-      // DEBUG: Log the actual error (remove after testing)
-      console.log('Firebase Error Code:', error.code);
-      console.log('Firebase Error Message:', error.message);
-      
       // Show user-friendly error messages
-      // UPDATED: Handle new Firebase error codes
+      // Handle both new and legacy Firebase error codes
       if (error.code === 'auth/invalid-credential' || 
           error.code === 'auth/invalid-login-credentials' ||
           error.code === 'auth/user-not-found' || 
@@ -116,7 +112,6 @@ function Login() {
         
       } else {
         setMessage('An error occurred. Please try again.');
-        console.error('Unhandled Firebase error:', error);
       }
     }
 
@@ -134,8 +129,6 @@ function Login() {
       await sendPasswordResetEmail(auth, email);
       setMessage('Password reset email sent! Check your inbox.');
     } catch (error) {
-      console.log('Password reset error:', error.code);
-      
       // SECURITY: Don't reveal if email exists or not
       if (error.code === 'auth/user-not-found') {
         setMessage('If an account exists with this email, a reset link has been sent.');
