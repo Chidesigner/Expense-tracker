@@ -3,6 +3,7 @@ import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { collection, addDoc, getDocs, deleteDoc, updateDoc, doc, query, where } from 'firebase/firestore';
 import Login from './Login';
+import SpendingChart from './SpendingChart';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -17,6 +18,10 @@ function App() {
   const [date, setDate] = useState('');
   const [notes, setNotes] = useState('');
   const [editingId, setEditingId] = useState(null);
+
+  // Search and filter states
+  const [searchText, setSearchText] = useState('');
+  const [filterCategory, setFilterCategory] = useState('All');
 
   const categories = ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Other'];
 
@@ -150,6 +155,13 @@ function App() {
   // Calculate total
   const total = expenses.reduce((sum, exp) => sum + exp.amount, 0);
 
+  // Filter expenses based on search and category
+  const filteredExpenses = expenses.filter(exp => {
+    const matchesSearch = exp.title.toLowerCase().includes(searchText.toLowerCase());
+    const matchesCategory = filterCategory === 'All' || exp.category === filterCategory;
+    return matchesSearch && matchesCategory;
+  });
+
   if (loading) {
     return <div className="loading">Loading...</div>;
   }
@@ -163,7 +175,7 @@ function App() {
       <header>
         <div>
           <h1>Fintrax</h1>
-          <p>Track it. Control it.</p>
+          <p>Secure. Simple. Smart.</p>
         </div>
         <div className="header-actions">
           <button onClick={handleLogout} className="logout-btn">Logout</button>
@@ -181,6 +193,9 @@ function App() {
             <p className="amount">{expenses.length}</p>
           </div>
         </div>
+
+        {/* Add the chart here */}
+        <SpendingChart expenses={expenses} />
 
         <button onClick={() => setShowForm(!showForm)} className="add-btn">
           {showForm ? 'Cancel' : '+ Add Expense'}
@@ -245,10 +260,36 @@ function App() {
 
         <div className="expenses-list">
           <h2>All Expenses</h2>
+          
+          {/* Search and Filter Controls */}
+          {expenses.length > 0 && (
+            <div className="search-filter">
+              <input
+                type="text"
+                className="search-input"
+                placeholder="🔍 Search expenses..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+              />
+              <select 
+                className="filter-select"
+                value={filterCategory} 
+                onChange={(e) => setFilterCategory(e.target.value)}
+              >
+                <option value="All">All Categories</option>
+                {categories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {expenses.length === 0 ? (
             <p className="empty">No expenses yet. Add one to get started!</p>
+          ) : filteredExpenses.length === 0 ? (
+            <p className="empty">No expenses match your search.</p>
           ) : (
-            expenses.map(exp => (
+            filteredExpenses.map(exp => (
               <div key={exp.id} className="expense-item">
                 <div className="expense-info">
                   <h4>{exp.title}</h4>

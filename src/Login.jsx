@@ -15,6 +15,32 @@ function Login() {
   const [message, setMessage] = useState(''); // One message for both error and success
   const [loading, setLoading] = useState(false);
 
+  // SECURITY: Calculate password strength
+  const getPasswordStrength = (pwd) => {
+    if (pwd.length === 0) return { strength: '', color: '', text: '' };
+    
+    let score = 0;
+    
+    // Length check
+    if (pwd.length >= 8) score++;
+    if (pwd.length >= 12) score++;
+    
+    // Has uppercase and lowercase
+    if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++;
+    
+    // Has numbers
+    if (/\d/.test(pwd)) score++;
+    
+    // Has special characters
+    if (/[^A-Za-z0-9]/.test(pwd)) score++;
+    
+    if (score <= 2) return { strength: 'weak', color: '#ff4444', text: 'Weak' };
+    if (score <= 3) return { strength: 'medium', color: '#ffaa00', text: 'Medium' };
+    return { strength: 'strong', color: '#00C851', text: 'Strong' };
+  };
+
+  const passwordStrength = getPasswordStrength(password);
+
   // Simple email check
   const isValidEmail = (email) => {
     return email.includes('@') && email.includes('.');
@@ -33,6 +59,12 @@ function Login() {
 
     if (password.length < 6) {
       setMessage('Password must be at least 6 characters');
+      return;
+    }
+
+    // SECURITY: Encourage strong passwords on signup
+    if (!isLogin && passwordStrength.strength === 'weak') {
+      setMessage('Please use a stronger password for better security');
       return;
     }
 
@@ -93,29 +125,68 @@ function Login() {
         {message && <div className="error">{message}</div>}
 
         <form onSubmit={handleSubmit}>
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-          
-          {!isLogin && (
+          <div className="input-container">
             <input
-              type="password"
-              placeholder="Confirm Password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
             />
+          </div>
+          <div className="input-container">
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            {/* Show password strength indicator when signing up and user is typing */}
+            {!isLogin && password.length > 0 && (
+              <>
+                <div className="password-strength">
+                  <div 
+                    className="strength-bar" 
+                    style={{ 
+                      width: password.length < 6 ? '33%' : 
+                             passwordStrength.strength === 'weak' ? '33%' : 
+                             passwordStrength.strength === 'medium' ? '66%' : '100%',
+                      backgroundColor: passwordStrength.color 
+                    }}
+                  />
+                  <span style={{ color: passwordStrength.color }}>
+                    {passwordStrength.text}
+                  </span>
+                </div>
+                <div className="password-hints">
+                  <span className={password.length >= 8 ? 'hint-met' : 'hint-unmet'}>
+                    {password.length >= 8 ? '✓' : '○'} 8+ characters
+                  </span>
+                  <span className={/[A-Z]/.test(password) ? 'hint-met' : 'hint-unmet'}>
+                    {/[A-Z]/.test(password) ? '✓' : '○'} Uppercase
+                  </span>
+                  <span className={/[0-9]/.test(password) ? 'hint-met' : 'hint-unmet'}>
+                    {/[0-9]/.test(password) ? '✓' : '○'} Number
+                  </span>
+                  <span className={/[^A-Za-z0-9]/.test(password) ? 'hint-met' : 'hint-unmet'}>
+                    {/[^A-Za-z0-9]/.test(password) ? '✓' : '○'} Special (!@#$)
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+          
+          {!isLogin && (
+            <div className="input-container">
+              <input
+                type="password"
+                placeholder="Confirm Password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+            </div>
           )}
 
           <button type="submit" disabled={loading}>
@@ -134,6 +205,8 @@ function Login() {
           <span onClick={() => {
             setIsLogin(!isLogin);
             setMessage('');
+            setPassword('');
+            setConfirmPassword('');
           }}>
             {isLogin ? 'Sign Up' : 'Login'}
           </span>
