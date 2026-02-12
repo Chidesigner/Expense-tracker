@@ -4,8 +4,7 @@ import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { auth } from './firebase';
 
 function Login() {
   const [isLogin, setIsLogin] = useState(true);
@@ -45,19 +44,16 @@ function Login() {
   // SECURITY: Check if too many failed login attempts
   const checkRateLimit = () => {
     const now = Date.now();
-    const oneMinuteAgo = now - 60000; // 60 seconds
+    const oneMinuteAgo = now - 60000;
 
-    // Remove attempts older than 1 minute
     failedAttemptsRef.current = failedAttemptsRef.current.filter(
       timestamp => timestamp > oneMinuteAgo
     );
 
-    // If 5 or more failed attempts in last minute, block login
     if (failedAttemptsRef.current.length >= 5) {
       setIsRateLimited(true);
       setMessage('Too many failed attempts. Please wait 1 minute.');
       
-      // Unblock after 1 minute
       setTimeout(() => {
         setIsRateLimited(false);
         failedAttemptsRef.current = [];
@@ -67,38 +63,6 @@ function Login() {
       return false;
     }
     return true;
-  };
-
-  // SECURITY: Save last login time when user logs in
-  const saveLastLogin = async (userId) => {
-    try {
-      // First, get the current user document to retrieve previous login time
-      const userDocRef = doc(db, 'users', userId);
-      const userDoc = await getDoc(userDocRef);
-      
-      const currentTime = new Date().toISOString();
-      
-      if (userDoc.exists()) {
-        // User exists - update with new login time
-        // The previous lastLogin becomes previousLogin
-        const userData = userDoc.data();
-        await updateDoc(userDocRef, {
-          previousLogin: userData.lastLogin || currentTime, // Save old lastLogin as previousLogin
-          lastLogin: currentTime,
-          email: email
-        });
-      } else {
-        // New user - create document
-        await setDoc(userDocRef, {
-          lastLogin: currentTime,
-          previousLogin: null, // First time login, no previous
-          email: email,
-          createdAt: currentTime
-        });
-      }
-    } catch (error) {
-      console.log('Could not save login time:', error);
-    }
   };
 
   const handleSubmit = async (e) => {
@@ -135,18 +99,9 @@ function Login() {
 
     try {
       if (isLogin) {
-        // Login
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        
-        // SECURITY: Save the login timestamp AFTER successful login
-        await saveLastLogin(userCredential.user.uid);
-        
+        await signInWithEmailAndPassword(auth, email, password);
       } else {
-        // Signup
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        
-        // Save first login time for new users
-        await saveLastLogin(userCredential.user.uid);
+        await createUserWithEmailAndPassword(auth, email, password);
       }
     } catch (error) {
       // SECURITY: Track failed login attempts
