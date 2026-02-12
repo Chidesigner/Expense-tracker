@@ -1,37 +1,33 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
   sendPasswordResetEmail
 } from 'firebase/auth';
-import { auth } from './firebase';
+import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { auth, db } from './firebase';
 
 function Login() {
-  // Just the essentials
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [message, setMessage] = useState(''); // One message for both error and success
+  const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // SECURITY: Calculate password strength
+  // SECURITY: Rate limiting to prevent brute force attacks
+  const [isRateLimited, setIsRateLimited] = useState(false);
+  const failedAttemptsRef = useRef([]);
+
+  // Check password strength
   const getPasswordStrength = (pwd) => {
     if (pwd.length === 0) return { strength: '', color: '', text: '' };
     
     let score = 0;
-    
-    // Length check
     if (pwd.length >= 8) score++;
     if (pwd.length >= 12) score++;
-    
-    // Has uppercase and lowercase
     if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++;
-    
-    // Has numbers
     if (/\d/.test(pwd)) score++;
-    
-    // Has special characters
     if (/[^A-Za-z0-9]/.test(pwd)) score++;
     
     if (score <= 2) return { strength: 'weak', color: '#ff4444', text: 'Weak' };
@@ -41,17 +37,80 @@ function Login() {
 
   const passwordStrength = getPasswordStrength(password);
 
-  // Simple email check
+  // Simple email validation
   const isValidEmail = (email) => {
     return email.includes('@') && email.includes('.');
   };
 
-  // Handle Login or Signup
+  // SECURITY: Check if too many failed login attempts
+  const checkRateLimit = () => {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000; // 60 seconds
+
+    // Remove attempts older than 1 minute
+    failedAttemptsRef.current = failedAttemptsRef.current.filter(
+      timestamp => timestamp > oneMinuteAgo
+    );
+
+    // If 5 or more failed attempts in last minute, block login
+    if (failedAttemptsRef.current.length >= 5) {
+      setIsRateLimited(true);
+      setMessage('Too many failed attempts. Please wait 1 minute.');
+      
+      // Unblock after 1 minute
+      setTimeout(() => {
+        setIsRateLimited(false);
+        failedAttemptsRef.current = [];
+        setMessage('');
+      }, 60000);
+      
+      return false;
+    }
+    return true;
+  };
+
+  // SECURITY: Save last login time when user logs in
+  const saveLastLogin = async (userId) => {
+    try {
+      // First, get the current user document to retrieve previous login time
+      const userDocRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userDocRef);
+      
+      const currentTime = new Date().toISOString();
+      
+      if (userDoc.exists()) {
+        // User exists - update with new login time
+        // The previous lastLogin becomes previousLogin
+        const userData = userDoc.data();
+        await updateDoc(userDocRef, {
+          previousLogin: userData.lastLogin || currentTime, // Save old lastLogin as previousLogin
+          lastLogin: currentTime,
+          email: email
+        });
+      } else {
+        // New user - create document
+        await setDoc(userDocRef, {
+          lastLogin: currentTime,
+          previousLogin: null, // First time login, no previous
+          email: email,
+          createdAt: currentTime
+        });
+      }
+    } catch (error) {
+      console.log('Could not save login time:', error);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage('');
 
-    // Basic checks
+    // SECURITY: Check rate limit before attempting login
+    if (isLogin && !checkRateLimit()) {
+      return;
+    }
+
+    // Validation
     if (!isValidEmail(email)) {
       setMessage('Please enter a valid email');
       return;
@@ -62,13 +121,11 @@ function Login() {
       return;
     }
 
-    // SECURITY: Encourage strong passwords on signup
     if (!isLogin && passwordStrength.strength === 'weak') {
       setMessage('Please use a stronger password for better security');
       return;
     }
 
-    // Only check confirm password when signing up
     if (!isLogin && password !== confirmPassword) {
       setMessage('Passwords do not match');
       return;
@@ -79,37 +136,40 @@ function Login() {
     try {
       if (isLogin) {
         // Login
-        await signInWithEmailAndPassword(auth, email, password);
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        
+        // SECURITY: Save the login timestamp AFTER successful login
+        await saveLastLogin(userCredential.user.uid);
+        
       } else {
         // Signup
-        await createUserWithEmailAndPassword(auth, email, password);
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        
+        // Save first login time for new users
+        await saveLastLogin(userCredential.user.uid);
       }
-      // If successful, Firebase automatically redirects (handled in App.jsx)
     } catch (error) {
+      // SECURITY: Track failed login attempts
+      if (isLogin) {
+        failedAttemptsRef.current.push(Date.now());
+      }
+
       // Show user-friendly error messages
-      // Handle both new and legacy Firebase error codes
       if (error.code === 'auth/invalid-credential' || 
           error.code === 'auth/invalid-login-credentials' ||
           error.code === 'auth/user-not-found' || 
           error.code === 'auth/wrong-password') {
-        // SECURITY: Use generic message to prevent user enumeration
         setMessage('Invalid email or password');
-        
       } else if (error.code === 'auth/email-already-in-use') {
         setMessage('Email already registered');
-        
       } else if (error.code === 'auth/weak-password') {
         setMessage('Password should be at least 6 characters');
-        
       } else if (error.code === 'auth/invalid-email') {
         setMessage('Please enter a valid email address');
-        
       } else if (error.code === 'auth/too-many-requests') {
         setMessage('Too many failed attempts. Please try again later.');
-        
       } else if (error.code === 'auth/network-request-failed') {
         setMessage('Network error. Check your internet connection.');
-        
       } else {
         setMessage('An error occurred. Please try again.');
       }
@@ -118,7 +178,6 @@ function Login() {
     setLoading(false);
   };
 
-  // Handle forgot password
   const handleForgotPassword = async () => {
     if (!isValidEmail(email)) {
       setMessage('Please enter your email first');
@@ -129,7 +188,6 @@ function Login() {
       await sendPasswordResetEmail(auth, email);
       setMessage('Password reset email sent! Check your inbox.');
     } catch (error) {
-      // SECURITY: Don't reveal if email exists or not
       if (error.code === 'auth/user-not-found') {
         setMessage('If an account exists with this email, a reset link has been sent.');
       } else if (error.code === 'auth/invalid-email') {
@@ -160,6 +218,7 @@ function Login() {
               required
             />
           </div>
+          
           <div className="input-container">
             <input
               type="password"
@@ -168,7 +227,7 @@ function Login() {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-            {/* Show password strength indicator when signing up and user is typing */}
+            
             {!isLogin && password.length > 0 && (
               <>
                 <div className="password-strength">
@@ -215,7 +274,7 @@ function Login() {
             </div>
           )}
 
-          <button type="submit" disabled={loading}>
+          <button type="submit" disabled={loading || isRateLimited}>
             {loading ? 'Loading...' : isLogin ? 'Login' : 'Sign Up'}
           </button>
         </form>

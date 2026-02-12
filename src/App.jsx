@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, addDoc, getDocs, deleteDoc, updateDoc, doc, query, where } from 'firebase/firestore';
+import { collection, addDoc, getDocs, deleteDoc, updateDoc, doc, query, where, getDoc } from 'firebase/firestore';
 import Login from './Login';
 import SpendingChart from './SpendingChart';
 
@@ -9,6 +9,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [expenses, setExpenses] = useState([]);
+  const [lastLogin, setLastLogin] = useState('');
 
   // Form states
   const [showForm, setShowForm] = useState(false);
@@ -19,15 +20,31 @@ function App() {
   const [notes, setNotes] = useState('');
   const [editingId, setEditingId] = useState(null);
 
-  // Search and filter states
+  // Filter states
   const [searchText, setSearchText] = useState('');
   const [filterCategory, setFilterCategory] = useState('All');
+  const [filterMonth, setFilterMonth] = useState('All');
 
   const categories = ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Other'];
 
-  // Remove dangerous HTML tags from user input
-  const cleanInput = (text) => {
-    return text.replace(/<[^>]*>/g, '').trim();
+  // SECURITY: Input sanitization - removes dangerous HTML and SQL patterns
+  const sanitizeInput = (text) => {
+    // Remove HTML tags
+    let cleaned = text.replace(/<[^>]*>/g, '');
+    
+    // Remove common SQL injection patterns (case-insensitive)
+    const sqlPatterns = /(\bSELECT\b|\bINSERT\b|\bDELETE\b|\bDROP\b|\bUPDATE\b|\bUNION\b)/gi;
+    cleaned = cleaned.replace(sqlPatterns, '');
+    
+    // Convert special HTML characters to safe entities
+    cleaned = cleaned
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
+    
+    return cleaned.trim();
   };
 
   // Check if user is logged in
@@ -39,16 +56,46 @@ function App() {
     return unsubscribe;
   }, []);
 
-  // Load expenses when user logs in
+  // Load expenses and last login when user logs in
   useEffect(() => {
     if (user) {
       loadExpenses();
+      loadLastLogin();
     }
   }, [user]);
 
+  // SECURITY: Load PREVIOUS login time from Firestore (not current login)
+  const loadLastLogin = async () => {
+    try {
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        
+        // Check if there's a previous login time
+        if (data.previousLogin) {
+          const loginDate = new Date(data.previousLogin);
+          const formatted = loginDate.toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          setLastLogin(formatted);
+        } else {
+          // First time login
+          setLastLogin('First login');
+        }
+      }
+    } catch (error) {
+      console.log('Could not load login time:', error);
+    }
+  };
+
   const loadExpenses = async () => {
     try {
-      // Get only this user's expenses
       const q = query(collection(db, 'expenses'), where('userId', '==', user.uid));
       const snapshot = await getDocs(q);
       const data = snapshot.docs.map(doc => ({
@@ -64,12 +111,12 @@ function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Clean inputs to prevent XSS
-    const cleanTitle = cleanInput(title);
-    const cleanNotes = cleanInput(notes);
+    // SECURITY: Sanitize all text inputs
+    const cleanTitle = sanitizeInput(title);
+    const cleanNotes = sanitizeInput(notes);
     const numAmount = parseFloat(amount);
 
-    // Basic validation
+    // Validation
     if (!cleanTitle || !amount || !date) {
       alert('Please fill all required fields');
       return;
@@ -90,10 +137,8 @@ function App() {
 
     try {
       if (editingId) {
-        // Update existing expense
         await updateDoc(doc(db, 'expenses', editingId), expenseData);
       } else {
-        // Add new expense
         await addDoc(collection(db, 'expenses'), {
           ...expenseData,
           userId: user.uid,
@@ -150,16 +195,54 @@ function App() {
   const handleLogout = () => {
     signOut(auth);
     setExpenses([]);
+    setLastLogin('');
   };
 
-  // Calculate total
+  // Calculate total spending
   const total = expenses.reduce((sum, exp) => sum + exp.amount, 0);
 
-  // Filter expenses based on search and category
+  // Get list of unique months from expenses for the filter dropdown
+  const getAvailableMonths = () => {
+    const months = expenses.map(exp => {
+      const date = new Date(exp.date);
+      return date.toLocaleString('en-US', { year: 'numeric', month: 'short' });
+    });
+    return [...new Set(months)].sort().reverse();
+  };
+
+  // Calculate this month's spending
+  const getCurrentMonthSpending = () => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    return expenses
+      .filter(exp => {
+        const expDate = new Date(exp.date);
+        return expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear;
+      })
+      .reduce((sum, exp) => sum + exp.amount, 0);
+  };
+
+  const thisMonthTotal = getCurrentMonthSpending();
+
+  // Filter expenses by search, category, and month
   const filteredExpenses = expenses.filter(exp => {
+    // Search filter
     const matchesSearch = exp.title.toLowerCase().includes(searchText.toLowerCase());
+    
+    // Category filter
     const matchesCategory = filterCategory === 'All' || exp.category === filterCategory;
-    return matchesSearch && matchesCategory;
+    
+    // Month filter
+    let matchesMonth = true;
+    if (filterMonth !== 'All') {
+      const expDate = new Date(exp.date);
+      const expMonthYear = expDate.toLocaleString('en-US', { year: 'numeric', month: 'short' });
+      matchesMonth = expMonthYear === filterMonth;
+    }
+    
+    return matchesSearch && matchesCategory && matchesMonth;
   });
 
   if (loading) {
@@ -188,14 +271,27 @@ function App() {
             <h3>Total Spent</h3>
             <p className="amount">₦{total.toFixed(2)}</p>
           </div>
+          
+          <div className="summary-card">
+            <h3>This Month</h3>
+            <p className="amount">₦{thisMonthTotal.toFixed(2)}</p>
+          </div>
+          
           <div className="summary-card">
             <h3>Transactions</h3>
             <p className="amount">{expenses.length}</p>
           </div>
+          
+          {/* SECURITY FEATURE: Show last login time */}
+          {lastLogin && (
+            <div className="summary-card">
+              <h3>Last Login</h3>
+              <p className="amount" style={{ fontSize: '14px' }}>{lastLogin}</p>
+            </div>
+          )}
         </div>
 
-        {/* Add the chart here */}
-        <SpendingChart expenses={expenses} />
+        <SpendingChart expenses={filteredExpenses} />
 
         <button onClick={() => setShowForm(!showForm)} className="add-btn">
           {showForm ? 'Cancel' : '+ Add Expense'}
@@ -261,7 +357,6 @@ function App() {
         <div className="expenses-list">
           <h2>All Expenses</h2>
           
-          {/* Search and Filter Controls */}
           {expenses.length > 0 && (
             <div className="search-filter">
               <input
@@ -271,6 +366,7 @@ function App() {
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
               />
+              
               <select 
                 className="filter-select"
                 value={filterCategory} 
@@ -281,13 +377,24 @@ function App() {
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
+
+              <select 
+                className="filter-select"
+                value={filterMonth} 
+                onChange={(e) => setFilterMonth(e.target.value)}
+              >
+                <option value="All">All Months</option>
+                {getAvailableMonths().map(month => (
+                  <option key={month} value={month}>{month}</option>
+                ))}
+              </select>
             </div>
           )}
 
           {expenses.length === 0 ? (
             <p className="empty">No expenses yet. Add one to get started!</p>
           ) : filteredExpenses.length === 0 ? (
-            <p className="empty">No expenses match your search.</p>
+            <p className="empty">No expenses match your filters.</p>
           ) : (
             filteredExpenses.map(exp => (
               <div key={exp.id} className="expense-item">
