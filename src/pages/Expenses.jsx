@@ -1,77 +1,258 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
-import { collection, addDoc, getDocs, deleteDoc, updateDoc, doc, query, where } from 'firebase/firestore';
+import {
+  collection, addDoc, getDocs, deleteDoc,
+  updateDoc, doc, query, where
+} from 'firebase/firestore';
 
+// ─── SANITIZATION ENGINE ─────────────────────────────────────────────────────
+// 4-layer pipeline derived from the SanitizeX demonstrator project.
+// Returns the cleaned value plus a threat log used for the inline warning UI.
+//
+// Layer 1 — Strip HTML tags          (prevents markup injection)
+// Layer 2 — Encode HTML entities     (neutralises remaining special chars)
+// Layer 3 — Block script patterns    (OWASP A03 XSS vectors)
+// Layer 4 — Block SQL keywords       (OWASP A03 injection)
+
+function sanitizeInput(raw) {
+  if (!raw || typeof raw !== 'string') return { value: '', threats: [], blocked: false };
+
+  const threats = [];
+  let val     = raw;
+  let blocked = false;
+
+  // Layer 1: HTML tag stripping
+  const tagMatches = val.match(/<[^>]*>/g) || [];
+  tagMatches.forEach(tag => {
+    threats.push({ layer: 1, type: 'sanitized', label: 'HTML Tag Stripped', detail: `Removed: ${tag}` });
+  });
+  val = val.replace(/<[^>]*>/g, '');
+
+  // Layer 2: HTML entity encoding
+  const entityMap = [
+    { char: '&', entity: '&amp;',  name: 'Ampersand' },
+    { char: '<', entity: '&lt;',   name: 'Less-than' },
+    { char: '>', entity: '&gt;',   name: 'Greater-than' },
+    { char: '"', entity: '&quot;', name: 'Double quote' },
+    { char: "'", entity: '&#x27;', name: 'Single quote' },
+    { char: '/', entity: '&#x2F;', name: 'Forward slash' },
+  ];
+  let anyEncoded = false;
+  entityMap.forEach(({ char, entity, name }) => {
+    const count = val.split(char).length - 1;
+    if (count > 0) {
+      anyEncoded = true;
+      threats.push({ layer: 2, type: 'sanitized', label: 'Character Encoded', detail: `${name} → ${entity} (×${count})` });
+    }
+  });
+  if (anyEncoded) {
+    val = val
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#x27;').replace(/\//g, '&#x2F;');
+  }
+
+  // Layer 3: Script pattern detection
+  const scriptPatterns = [
+    { re: /javascript:/gi, name: 'javascript: URI' },
+    { re: /data:/gi,       name: 'data: URI' },
+    { re: /vbscript:/gi,   name: 'vbscript: URI' },
+    { re: /on\w+\s*=/gi,   name: 'Inline event handler' },
+  ];
+  scriptPatterns.forEach(({ re, name }) => {
+    if (re.test(raw)) {
+      blocked = true;
+      threats.push({ layer: 3, type: 'blocked', label: 'Script Pattern Blocked', detail: `${name} — OWASP A03 XSS` });
+    }
+  });
+
+  // Layer 4: SQL keyword detection
+  const sqlPatterns = [
+    { re: /\bSELECT\b/i, name: 'SELECT' },
+    { re: /\bDROP\b/i,   name: 'DROP' },
+    { re: /\bINSERT\b/i, name: 'INSERT' },
+    { re: /\bDELETE\b/i, name: 'DELETE' },
+    { re: /\bUNION\b/i,  name: 'UNION' },
+    { re: /--/,          name: 'SQL comment (--)' },
+  ];
+  sqlPatterns.forEach(({ re, name }) => {
+    if (re.test(raw)) {
+      blocked = true;
+      threats.push({ layer: 4, type: 'blocked', label: 'SQL Injection Blocked', detail: `Keyword: ${name} — OWASP A03` });
+    }
+  });
+
+  return { value: blocked ? '' : val, threats, blocked };
+}
+
+// ─── THREAT WARNING COMPONENT ─────────────────────────────────────────────────
+// Displays inline below the input field only when threats are detected.
+// Clean input → nothing shown.
+// Sanitized input → amber warning showing what was encoded.
+// Blocked input → red warning, field is cleared.
+
+function ThreatWarning({ result }) {
+  if (!result || result.threats.length === 0) return null;
+
+  const isBlocked = result.blocked;
+  const accentColor = isBlocked ? '#e63946' : '#d97706';
+  const bgColor     = isBlocked ? '#fff5f5' : '#fffbeb';
+  const borderColor = isBlocked ? '#ffc8cb' : '#fcd34d';
+
+  return (
+    <div style={{
+      marginTop: 5,
+      padding: '9px 11px',
+      background: bgColor,
+      border: `1px solid ${borderColor}`,
+      borderLeft: `3px solid ${accentColor}`,
+      borderRadius: 4,
+      fontSize: '0.72rem',
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{
+          fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.1em',
+          textTransform: 'uppercase', padding: '1px 6px',
+          background: accentColor, color: 'white', borderRadius: 2,
+        }}>
+          {isBlocked ? '↯ blocked' : '⟳ sanitized'}
+        </span>
+        <span style={{ color: '#666', fontSize: '0.68rem' }}>
+          {result.threats.length} issue{result.threats.length !== 1 ? 's' : ''} detected
+        </span>
+      </div>
+
+      {/* Threat rows */}
+      {result.threats.map((t, i) => (
+        <div key={i} style={{
+          display: 'flex', gap: 7, alignItems: 'flex-start',
+          paddingTop: i > 0 ? 4 : 0,
+          borderTop: i > 0 ? '1px solid rgba(0,0,0,0.05)' : 'none',
+        }}>
+          <span style={{
+            fontFamily: 'monospace', fontSize: '0.58rem',
+            padding: '1px 4px',
+            background: t.type === 'blocked' ? '#e63946' : '#d97706',
+            color: 'white', borderRadius: 2, flexShrink: 0, marginTop: 1,
+          }}>
+            L{t.layer}
+          </span>
+          <div style={{ color: '#555', lineHeight: 1.4 }}>
+            <span style={{ fontWeight: 600, color: isBlocked ? '#e63946' : '#b45309', marginRight: 5 }}>
+              {t.label}.
+            </span>
+            {t.detail}
+          </div>
+        </div>
+      ))}
+
+      {/* Outcome message */}
+      <div style={{ marginTop: 7, fontSize: '0.67rem', color: isBlocked ? '#e63946' : '#b45309', fontStyle: 'italic' }}>
+        {isBlocked
+          ? 'This input was rejected. Please remove the flagged patterns.'
+          : 'Special characters were encoded before saving. Your data is stored safely.'}
+      </div>
+    </div>
+  );
+}
+
+// ─── EXPENSES COMPONENT ───────────────────────────────────────────────────────
 function Expenses() {
-  const [expenses, setExpenses] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [title, setTitle] = useState('');
-  const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState('Food');
-  const [date, setDate] = useState('');
-  const [notes, setNotes] = useState('');
-  const [editingId, setEditingId] = useState(null);
-  const [searchText, setSearchText] = useState('');
+  const [expenses, setExpenses]           = useState([]);
+  const [showForm, setShowForm]           = useState(false);
+  const [title, setTitle]                 = useState('');
+  const [amount, setAmount]               = useState('');
+  const [category, setCategory]           = useState('Food');
+  const [date, setDate]                   = useState('');
+  const [notes, setNotes]                 = useState('');
+  const [editingId, setEditingId]         = useState(null);
+  const [searchText, setSearchText]       = useState('');
   const [filterCategory, setFilterCategory] = useState('All');
-  const [filterMonth, setFilterMonth] = useState('All');
+  const [filterMonth, setFilterMonth]     = useState('All');
+
+  // Live sanitization results for inline threat display
+  const [titleSanitized, setTitleSanitized] = useState(null);
+  const [notesSanitized, setNotesSanitized] = useState(null);
 
   const categories = ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Other'];
 
-  useEffect(() => {
-    loadExpenses();
-  }, []);
-
-  const sanitizeInput = (text) => {
-    let cleaned = text.replace(/<[^>]*>/g, '');
-    const sqlPatterns = /(\bSELECT\b|\bINSERT\b|\bDELETE\b|\bDROP\b|\bUPDATE\b|\bUNION\b)/gi;
-    cleaned = cleaned.replace(sqlPatterns, '');
-    cleaned = cleaned
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#x27;');
-    return cleaned.trim();
-  };
+  useEffect(() => { loadExpenses(); }, []);
 
   const loadExpenses = async () => {
     try {
       const user = auth.currentUser;
-      const q = query(collection(db, 'expenses'), where('userId', '==', user.uid));
-      const snapshot = await getDocs(q);
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setExpenses(data);
-    } catch (error) {
+      const q    = query(collection(db, 'expenses'), where('userId', '==', user.uid));
+      const snap = await getDocs(q);
+      setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch {
       alert('Error loading expenses. Please try again.');
     }
   };
 
+  // ── Input handlers with live sanitization feedback ──────────────────────────
+  const handleTitleChange = (e) => {
+    const raw    = e.target.value;
+    const result = sanitizeInput(raw);
+    setTitle(raw);
+    // Only show feedback if threats were found
+    setTitleSanitized(result.threats.length > 0 ? result : null);
+  };
+
+  const handleNotesChange = (e) => {
+    const raw    = e.target.value;
+    const result = sanitizeInput(raw);
+    setNotes(raw);
+    setNotesSanitized(result.threats.length > 0 ? result : null);
+  };
+
+  // ── Form submission ──────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const cleanTitle = sanitizeInput(title);
-    const cleanNotes = sanitizeInput(notes);
-    const numAmount = parseFloat(amount);
+    // Run final sanitization at submit time
+    const titleResult = sanitizeInput(title);
+    const notesResult = sanitizeInput(notes);
+
+    // Reject if any field is blocked
+    if (titleResult.blocked) {
+      alert('Title contains disallowed content. Please remove the flagged input.');
+      return;
+    }
+    if (notesResult.blocked) {
+      alert('Notes contain disallowed content. Please remove the flagged input.');
+      return;
+    }
+
+    const cleanTitle = titleResult.value;
+    const cleanNotes = notesResult.value;
+    const numAmount  = parseFloat(amount);
 
     if (!cleanTitle || !amount || !date) {
       alert('Please fill all required fields');
       return;
     }
+    if (isNaN(numAmount) || numAmount <= 0) {
+      alert('Amount must be a positive number');
+      return;
+    }
+    if (numAmount > 10000000) {
+      alert('Amount cannot exceed ₦10,000,000');
+      return;
+    }
 
-    if (numAmount <= 0) {
-      alert('Amount must be greater than zero');
+    // SECURITY: Only whitelisted category values are accepted.
+    // Prevents injection of unexpected values into the category field.
+    if (!categories.includes(category)) {
+      alert('Invalid category selected');
       return;
     }
 
     const expenseData = {
       title: cleanTitle,
       amount: numAmount,
-      category: category,
-      date: date,
-      notes: cleanNotes
+      category,
+      date,
+      notes: cleanNotes,
     };
 
     try {
@@ -82,21 +263,20 @@ function Expenses() {
         await addDoc(collection(db, 'expenses'), {
           ...expenseData,
           userId: user.uid,
-          createdAt: new Date()
+          createdAt: new Date(),
         });
       }
-
-      setTitle('');
-      setAmount('');
-      setCategory('Food');
-      setDate('');
-      setNotes('');
-      setEditingId(null);
-      setShowForm(false);
+      resetForm();
       loadExpenses();
-    } catch (error) {
+    } catch {
       alert('Error saving expense. Please try again.');
     }
+  };
+
+  const resetForm = () => {
+    setTitle(''); setAmount(''); setCategory('Food');
+    setDate(''); setNotes(''); setEditingId(null);
+    setShowForm(false); setTitleSanitized(null); setNotesSanitized(null);
   };
 
   const startEdit = (expense) => {
@@ -107,16 +287,8 @@ function Expenses() {
     setNotes(expense.notes || '');
     setEditingId(expense.id);
     setShowForm(true);
-  };
-
-  const cancelEdit = () => {
-    setTitle('');
-    setAmount('');
-    setCategory('Food');
-    setDate('');
-    setNotes('');
-    setEditingId(null);
-    setShowForm(false);
+    setTitleSanitized(null);
+    setNotesSanitized(null);
   };
 
   const deleteExpense = async (id) => {
@@ -124,7 +296,7 @@ function Expenses() {
       try {
         await deleteDoc(doc(db, 'expenses', id));
         loadExpenses();
-      } catch (error) {
+      } catch {
         alert('Error deleting expense. Please try again.');
       }
     }
@@ -132,31 +304,28 @@ function Expenses() {
 
   const getAvailableMonths = () => {
     const months = expenses.map(exp => {
-      const date = new Date(exp.date);
-      return date.toLocaleString('en-US', { year: 'numeric', month: 'short' });
+      const d = new Date(exp.date);
+      return d.toLocaleString('en-US', { year: 'numeric', month: 'short' });
     });
     return [...new Set(months)].sort().reverse();
   };
 
   const filteredExpenses = expenses.filter(exp => {
-    const matchesSearch = exp.title.toLowerCase().includes(searchText.toLowerCase());
-    const matchesCategory = filterCategory === 'All' || exp.category === filterCategory;
-    
-    let matchesMonth = true;
+    const matchSearch   = exp.title.toLowerCase().includes(searchText.toLowerCase());
+    const matchCategory = filterCategory === 'All' || exp.category === filterCategory;
+    let   matchMonth    = true;
     if (filterMonth !== 'All') {
-      const expDate = new Date(exp.date);
-      const expMonthYear = expDate.toLocaleString('en-US', { year: 'numeric', month: 'short' });
-      matchesMonth = expMonthYear === filterMonth;
+      const expMonthYear = new Date(exp.date).toLocaleString('en-US', { year: 'numeric', month: 'short' });
+      matchMonth = expMonthYear === filterMonth;
     }
-    
-    return matchesSearch && matchesCategory && matchesMonth;
+    return matchSearch && matchCategory && matchMonth;
   });
 
   return (
     <div className="page">
       <div className="page-header">
         <h2>Expenses</h2>
-        <button onClick={() => setShowForm(!showForm)} className="add-btn">
+        <button onClick={() => { setShowForm(!showForm); if (showForm) resetForm(); }} className="add-btn">
           {showForm ? 'Cancel' : '+ Add Expense'}
         </button>
       </div>
@@ -164,25 +333,32 @@ function Expenses() {
       {showForm && (
         <form onSubmit={handleSubmit} className="expense-form">
           <h3>{editingId ? 'Edit Expense' : 'Add New Expense'}</h3>
-          
-          <input
-            type="text"
-            placeholder="What did you spend on?"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={100}
-            required
-          />
-          
+
+          {/* Title — with live threat display */}
+          <div>
+            <input
+              type="text"
+              placeholder="What did you spend on?"
+              value={title}
+              onChange={handleTitleChange}
+              maxLength={100}
+              required
+              style={titleSanitized?.blocked ? { borderColor: '#e63946' } : {}}
+            />
+            <ThreatWarning result={titleSanitized} />
+          </div>
+
           <input
             type="number"
             step="0.01"
-            placeholder="How much?"
+            min="0.01"
+            max="10000000"
+            placeholder="How much? (₦)"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             required
           />
-          
+
           <input
             type="date"
             value={date}
@@ -190,27 +366,32 @@ function Expenses() {
             max={new Date().toISOString().split('T')[0]}
             required
           />
-          
+
           <select value={category} onChange={(e) => setCategory(e.target.value)}>
             {categories.map(cat => (
               <option key={cat} value={cat}>{cat}</option>
             ))}
           </select>
 
-          <textarea
-            placeholder="Add a note (optional)"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            maxLength={500}
-            rows={3}
-          />
+          {/* Notes — with live threat display */}
+          <div>
+            <textarea
+              placeholder="Add a note (optional)"
+              value={notes}
+              onChange={handleNotesChange}
+              maxLength={500}
+              rows={3}
+              style={notesSanitized?.blocked ? { borderColor: '#e63946' } : {}}
+            />
+            <ThreatWarning result={notesSanitized} />
+          </div>
 
           <div className="form-buttons">
-            <button type="submit">
+            <button type="submit" disabled={titleSanitized?.blocked || notesSanitized?.blocked}>
               {editingId ? 'Update' : 'Save'} Expense
             </button>
             {editingId && (
-              <button type="button" onClick={cancelEdit} className="cancel-btn">
+              <button type="button" onClick={resetForm} className="cancel-btn">
                 Cancel
               </button>
             )}
@@ -228,27 +409,21 @@ function Expenses() {
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
             />
-            
-            <select 
+            <select
               className="filter-select"
-              value={filterCategory} 
+              value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}
             >
               <option value="All">All Categories</option>
-              {categories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
+              {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
             </select>
-
-            <select 
+            <select
               className="filter-select"
-              value={filterMonth} 
+              value={filterMonth}
               onChange={(e) => setFilterMonth(e.target.value)}
             >
               <option value="All">All Months</option>
-              {getAvailableMonths().map(month => (
-                <option key={month} value={month}>{month}</option>
-              ))}
+              {getAvailableMonths().map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
         )}
@@ -270,12 +445,8 @@ function Expenses() {
               </div>
               <div className="expense-actions">
                 <p className="expense-amount">₦{exp.amount.toFixed(2)}</p>
-                <button onClick={() => startEdit(exp)} className="edit-btn">
-                  Edit
-                </button>
-                <button onClick={() => deleteExpense(exp.id)} className="delete-btn">
-                  Delete
-                </button>
+                <button onClick={() => startEdit(exp)} className="edit-btn">Edit</button>
+                <button onClick={() => deleteExpense(exp.id)} className="delete-btn">Delete</button>
               </div>
             </div>
           ))
