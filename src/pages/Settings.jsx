@@ -28,10 +28,8 @@ function Settings() {
       const user = auth.currentUser;
       const credential = EmailAuthProvider.credential(user.email, currentPassword);
       
-      // Re-authenticate user
       await reauthenticateWithCredential(user, credential);
       
-      // Update password
       await updatePassword(user, newPassword);
       
       setMessage('Password updated successfully!');

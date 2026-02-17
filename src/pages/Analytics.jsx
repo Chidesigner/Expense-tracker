@@ -29,7 +29,6 @@ function Analytics() {
     }
   };
 
-  // Monthly spending trend
   const getMonthlyTrend = () => {
     const monthlyData = {};
     
@@ -52,7 +51,6 @@ function Analytics() {
       }));
   };
 
-  // Category breakdown for pie chart
   const getCategoryBreakdown = () => {
     const categoryTotals = {};
     
@@ -70,7 +68,6 @@ function Analytics() {
     }));
   };
 
-  // Calculate insights
   const getInsights = () => {
     if (expenses.length === 0) return null;
 

@@ -28,7 +28,6 @@ function Dashboard() {
     }
   };
 
-  // Calculate totals
   const total = expenses.reduce((sum, exp) => sum + exp.amount, 0);
   
   const getCurrentMonthSpending = () => {
@@ -46,7 +45,6 @@ function Dashboard() {
 
   const thisMonthTotal = getCurrentMonthSpending();
 
-  // Get recent expenses (last 5)
   const recentExpenses = [...expenses]
     .sort((a, b) => new Date(b.date) - new Date(a.date))
     .slice(0, 5);

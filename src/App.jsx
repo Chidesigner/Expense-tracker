@@ -28,10 +28,7 @@ function App() {
   return (
     <Router>
       <Routes>
-        {/* Public routes */}
         <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
-        
-        {/* Protected routes */}
         {user ? (
           <Route path="/" element={<Layout user={user} />}>
             <Route index element={<Dashboard />} />

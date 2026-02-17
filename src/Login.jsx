@@ -6,10 +6,6 @@ import {
 } from 'firebase/auth';
 import { auth } from './firebase';
 
-// ─── PASSWORD ANALYSIS ENGINE ─────────────────────────────────────────────────
-// Calculates entropy, charset size, crack time, and per-criterion scores.
-// Based on brute force model at 10 billion guesses/sec (modern GPU cluster).
-
 function analyzePassword(pw) {
   if (!pw) return null;
 
@@ -72,7 +68,6 @@ function analyzePassword(pw) {
   return { score, level: levels[score] || levels[0], entropy: entropy.toFixed(1), charset, combos: combosStr, crackTime, criteria };
 }
 
-// ─── PASSWORD STRENGTH PANEL ──────────────────────────────────────────────────
 function PasswordStrengthPanel({ password }) {
   const a = analyzePassword(password);
   if (!a) return null;
@@ -88,7 +83,6 @@ function PasswordStrengthPanel({ password }) {
       borderRadius: 4,
       transition: 'all 0.2s',
     }}>
-      {/* Score header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{
@@ -105,7 +99,6 @@ function PasswordStrengthPanel({ password }) {
         </span>
       </div>
 
-      {/* Score bar */}
       <div style={{ display: 'flex', gap: 3, marginBottom: 10 }}>
         {[1, 2, 3, 4, 5].map(i => (
           <div key={i} style={{
@@ -116,7 +109,6 @@ function PasswordStrengthPanel({ password }) {
         ))}
       </div>
 
-      {/* Criteria grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 10 }}>
         {criteria.map(c => (
           <div key={c.id} style={{
@@ -130,7 +122,6 @@ function PasswordStrengthPanel({ password }) {
         ))}
       </div>
 
-      {/* Crack time + stats */}
       <div style={{
         padding: '7px 9px',
         background: 'rgba(0,0,0,0.04)',
@@ -154,7 +145,6 @@ function PasswordStrengthPanel({ password }) {
   );
 }
 
-// ─── LOGIN COMPONENT ──────────────────────────────────────────────────────────
 function Login() {
   const [isLogin, setIsLogin]                 = useState(true);
   const [email, setEmail]                     = useState('');
@@ -164,15 +154,11 @@ function Login() {
   const [loading, setLoading]                 = useState(false);
   const [showPassword, setShowPassword]       = useState(false);
 
-  // SECURITY: Rate limiting using useRef so the attempt log persists
-  // between renders without triggering re-renders on every failure.
   const [isRateLimited, setIsRateLimited] = useState(false);
   const failedAttemptsRef = useRef([]);
 
   const isValidEmail = (e) => e.includes('@') && e.includes('.');
 
-  // SECURITY: Block login after 5 failed attempts within 60 seconds.
-  // Directly addresses brute force and credential stuffing (OWASP A07).
   const checkRateLimit = () => {
     const now = Date.now();
     failedAttemptsRef.current = failedAttemptsRef.current.filter(t => t > now - 60000);
@@ -212,10 +198,6 @@ function Login() {
     } catch (error) {
       if (isLogin) failedAttemptsRef.current.push(Date.now());
 
-      // SECURITY: Generic error messages — whether the email is unrecognised
-      // or the password is wrong, the response is identical. This prevents
-      // user enumeration (OWASP A07): an attacker cannot determine which
-      // email addresses exist in the system from the error message alone.
       if (['auth/invalid-credential', 'auth/invalid-login-credentials',
            'auth/user-not-found', 'auth/wrong-password'].includes(error.code)) {
         setMessage('Invalid email or password');
@@ -242,7 +224,6 @@ function Login() {
       await sendPasswordResetEmail(auth, email);
       setMessage('Password reset email sent! Check your inbox.');
     } catch (error) {
-      // SECURITY: Non-specific reset message prevents email enumeration.
       if (error.code === 'auth/user-not-found') {
         setMessage('If an account exists with this email, a reset link has been sent.');
       } else {
@@ -303,7 +284,6 @@ function Login() {
               </button>
             </div>
 
-            {/* PassScan-integrated strength panel — signup only */}
             {!isLogin && password.length > 0 && (
               <PasswordStrengthPanel password={password} />
             )}

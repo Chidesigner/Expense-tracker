@@ -5,15 +5,6 @@ import {
   updateDoc, doc, query, where
 } from 'firebase/firestore';
 
-// ─── SANITIZATION ENGINE ─────────────────────────────────────────────────────
-// 4-layer pipeline derived from the SanitizeX demonstrator project.
-// Returns the cleaned value plus a threat log used for the inline warning UI.
-//
-// Layer 1 — Strip HTML tags          (prevents markup injection)
-// Layer 2 — Encode HTML entities     (neutralises remaining special chars)
-// Layer 3 — Block script patterns    (OWASP A03 XSS vectors)
-// Layer 4 — Block SQL keywords       (OWASP A03 injection)
-
 function sanitizeInput(raw) {
   if (!raw || typeof raw !== 'string') return { value: '', threats: [], blocked: false };
 
@@ -21,14 +12,12 @@ function sanitizeInput(raw) {
   let val     = raw;
   let blocked = false;
 
-  // Layer 1: HTML tag stripping
   const tagMatches = val.match(/<[^>]*>/g) || [];
   tagMatches.forEach(tag => {
     threats.push({ layer: 1, type: 'sanitized', label: 'HTML Tag Stripped', detail: `Removed: ${tag}` });
   });
   val = val.replace(/<[^>]*>/g, '');
 
-  // Layer 2: HTML entity encoding
   const entityMap = [
     { char: '&', entity: '&amp;',  name: 'Ampersand' },
     { char: '<', entity: '&lt;',   name: 'Less-than' },
@@ -50,8 +39,6 @@ function sanitizeInput(raw) {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#x27;').replace(/\//g, '&#x2F;');
   }
-
-  // Layer 3: Script pattern detection
   const scriptPatterns = [
     { re: /javascript:/gi, name: 'javascript: URI' },
     { re: /data:/gi,       name: 'data: URI' },
@@ -65,7 +52,6 @@ function sanitizeInput(raw) {
     }
   });
 
-  // Layer 4: SQL keyword detection
   const sqlPatterns = [
     { re: /\bSELECT\b/i, name: 'SELECT' },
     { re: /\bDROP\b/i,   name: 'DROP' },
@@ -83,12 +69,6 @@ function sanitizeInput(raw) {
 
   return { value: blocked ? '' : val, threats, blocked };
 }
-
-// ─── THREAT WARNING COMPONENT ─────────────────────────────────────────────────
-// Displays inline below the input field only when threats are detected.
-// Clean input → nothing shown.
-// Sanitized input → amber warning showing what was encoded.
-// Blocked input → red warning, field is cleared.
 
 function ThreatWarning({ result }) {
   if (!result || result.threats.length === 0) return null;
@@ -108,7 +88,6 @@ function ThreatWarning({ result }) {
       borderRadius: 4,
       fontSize: '0.72rem',
     }}>
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <span style={{
           fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.1em',
@@ -122,7 +101,6 @@ function ThreatWarning({ result }) {
         </span>
       </div>
 
-      {/* Threat rows */}
       {result.threats.map((t, i) => (
         <div key={i} style={{
           display: 'flex', gap: 7, alignItems: 'flex-start',
@@ -146,7 +124,6 @@ function ThreatWarning({ result }) {
         </div>
       ))}
 
-      {/* Outcome message */}
       <div style={{ marginTop: 7, fontSize: '0.67rem', color: isBlocked ? '#e63946' : '#b45309', fontStyle: 'italic' }}>
         {isBlocked
           ? 'This input was rejected. Please remove the flagged patterns.'
@@ -156,7 +133,6 @@ function ThreatWarning({ result }) {
   );
 }
 
-// ─── EXPENSES COMPONENT ───────────────────────────────────────────────────────
 function Expenses() {
   const [expenses, setExpenses]           = useState([]);
   const [showForm, setShowForm]           = useState(false);
@@ -170,7 +146,6 @@ function Expenses() {
   const [filterCategory, setFilterCategory] = useState('All');
   const [filterMonth, setFilterMonth]     = useState('All');
 
-  // Live sanitization results for inline threat display
   const [titleSanitized, setTitleSanitized] = useState(null);
   const [notesSanitized, setNotesSanitized] = useState(null);
 
@@ -189,12 +164,10 @@ function Expenses() {
     }
   };
 
-  // ── Input handlers with live sanitization feedback ──────────────────────────
   const handleTitleChange = (e) => {
     const raw    = e.target.value;
     const result = sanitizeInput(raw);
     setTitle(raw);
-    // Only show feedback if threats were found
     setTitleSanitized(result.threats.length > 0 ? result : null);
   };
 
@@ -205,15 +178,12 @@ function Expenses() {
     setNotesSanitized(result.threats.length > 0 ? result : null);
   };
 
-  // ── Form submission ──────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Run final sanitization at submit time
     const titleResult = sanitizeInput(title);
     const notesResult = sanitizeInput(notes);
 
-    // Reject if any field is blocked
     if (titleResult.blocked) {
       alert('Title contains disallowed content. Please remove the flagged input.');
       return;
@@ -240,8 +210,6 @@ function Expenses() {
       return;
     }
 
-    // SECURITY: Only whitelisted category values are accepted.
-    // Prevents injection of unexpected values into the category field.
     if (!categories.includes(category)) {
       alert('Invalid category selected');
       return;
@@ -334,7 +302,6 @@ function Expenses() {
         <form onSubmit={handleSubmit} className="expense-form">
           <h3>{editingId ? 'Edit Expense' : 'Add New Expense'}</h3>
 
-          {/* Title — with live threat display */}
           <div>
             <input
               type="text"
@@ -373,7 +340,6 @@ function Expenses() {
             ))}
           </select>
 
-          {/* Notes — with live threat display */}
           <div>
             <textarea
               placeholder="Add a note (optional)"

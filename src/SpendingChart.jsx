@@ -5,7 +5,6 @@ function SpendingChart({ expenses }) {
     return null;
   }
 
-  // Calculate total spending for each category
   const categoryTotals = {};
   
   expenses.forEach(expense => {
@@ -16,16 +15,13 @@ function SpendingChart({ expenses }) {
     }
   });
 
-  // Convert to array format for the chart
   const chartData = Object.keys(categoryTotals).map(category => ({
     category: category,
     amount: parseFloat(categoryTotals[category].toFixed(2))
   }));
 
-  // Sort by amount (highest first)
   chartData.sort((a, b) => b.amount - a.amount);
 
-  // Custom tooltip
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       return (

@@ -13,7 +13,6 @@ function Layout({ user }: { user: { email: string } }) {
     navigate('/login');
   };
 
-  // close mobile sidebar on navigation
   useEffect(() => {
     setOpen(false);
   }, [location.pathname]);

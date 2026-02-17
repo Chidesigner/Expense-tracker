@@ -2,7 +2,6 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyA0OG3jokD1iEsoycD2Euvu3Qz_cETfse8",
   authDomain: "expensetracker-e3fb8.firebaseapp.com",
