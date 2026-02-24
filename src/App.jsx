@@ -7,40 +7,49 @@ import Dashboard from './pages/Dashboard';
 import Expenses from './pages/Expenses';
 import Analytics from './pages/Analytics';
 import Settings from './pages/Settings';
+import AIPage from './pages/AI';
 import Layout from './components/Layout';
+import { CurrencyProvider } from './context/CurrencyContext';
 
 function App() {
-  const [user, setUser] = useState(null);
+  const [user, setUser]       = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsub = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
     });
-    return unsubscribe;
+    return unsub;
   }, []);
 
   if (loading) {
-    return <div className="loading">Loading...</div>;
+    return (
+      <div className="loading" style={{ fontFamily: "'DM Sans',sans-serif" }}>
+        Loading…
+      </div>
+    );
   }
 
   return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
-        {user ? (
-          <Route path="/" element={<Layout user={user} />}>
-            <Route index element={<Dashboard />} />
-            <Route path="expenses" element={<Expenses />} />
-            <Route path="analytics" element={<Analytics />} />
-            <Route path="settings" element={<Settings />} />
-          </Route>
-        ) : (
-          <Route path="*" element={<Navigate to="/login" />} />
-        )}
-      </Routes>
-    </Router>
+    <CurrencyProvider user={user}>
+      <Router>
+        <Routes>
+          <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
+          {user ? (
+            <Route path="/" element={<Layout user={user} />}>
+              <Route index element={<Dashboard />} />
+              <Route path="expenses"  element={<Expenses />} />
+              <Route path="analytics" element={<Analytics />} />
+              <Route path="ai"        element={<AIPage />} />
+              <Route path="settings"  element={<Settings />} />
+            </Route>
+          ) : (
+            <Route path="*" element={<Navigate to="/login" />} />
+          )}
+        </Routes>
+      </Router>
+    </CurrencyProvider>
   );
 }
 
