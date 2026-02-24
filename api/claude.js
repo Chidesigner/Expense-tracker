@@ -1,56 +1,50 @@
 // api/claude.js
-// Vercel Serverless Function — Gemini API proxy
-// Free tier: 1,500 requests/day, no card required
-// Get your key at: aistudio.google.com
+// Vercel Serverless Function — Groq API proxy
+// Free tier: 14,400 requests/day, no region restrictions
+// Get your key at: console.groq.com
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     return res.status(500).json({ error: 'API key not configured' });
   }
 
   try {
-    // Convert Anthropic-style request to Gemini format
     const { messages, system, max_tokens } = req.body;
 
-    // Build Gemini contents array
-    const contents = messages.map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }));
+    // Build Groq messages array (OpenAI-compatible format)
+    const groqMessages = [
+      ...(system ? [{ role: 'system', content: system }] : []),
+      ...messages,
+    ];
 
-    const geminiBody = {
-      system_instruction: system ? { parts: [{ text: system }] } : undefined,
-      contents,
-      generationConfig: {
-        maxOutputTokens: max_tokens || 1000,
-        temperature: 0.7,
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${apiKey}`,
       },
-    };
-
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(geminiBody),
-      }
-    );
+      body: JSON.stringify({
+        model:      'llama-3.1-8b-instant',
+        messages:   groqMessages,
+        max_tokens: max_tokens || 1000,
+        temperature: 0.7,
+      }),
+    });
 
     const data = await response.json();
 
     if (!response.ok) {
-      console.error('Gemini error:', data);
-      return res.status(response.status).json({ error: data?.error?.message || 'Gemini API error' });
+      console.error('Groq error:', data);
+      return res.status(response.status).json({ error: data?.error?.message || 'Groq API error' });
     }
 
-    // Convert Gemini response back to Anthropic-style format
-    // so ai.ts doesn't need any changes
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    // Convert to Anthropic-style format so ai.ts needs no changes
+    const text = data?.choices?.[0]?.message?.content || '';
     return res.status(200).json({
       content: [{ type: 'text', text }],
     });
