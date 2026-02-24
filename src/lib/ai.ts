@@ -201,25 +201,30 @@ ${financialContext}`;
 }
 
 // ─── CLAUDE API CALL ──────────────────────────────────────────────────────────
+// Calls the Vercel serverless function at /api/claude (see /api/claude.js).
+// Works automatically in both dev (vercel dev) and production (Vercel deploy).
+// Your ANTHROPIC_API_KEY never touches the browser — it lives in Vercel env vars.
+const PROXY_URL = '/api/claude';
+
 export async function callClaude(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
   systemPrompt: string,
   maxTokens = 1000
 ): Promise<string> {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch(PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: maxTokens,
-      system: systemPrompt,
+      system:     systemPrompt,
       messages,
     }),
   });
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `API error ${response.status}`);
+    throw new Error(err?.error?.message || `Proxy error ${response.status}`);
   }
 
   const data = await response.json();
