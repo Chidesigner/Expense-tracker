@@ -8,6 +8,7 @@ import Expenses from './pages/Expenses';
 import Analytics from './pages/Analytics';
 import Settings from './pages/Settings';
 import AIPage from './pages/AI';
+import ChatHistory from './pages/ChatHistory';
 import Layout from './components/Layout';
 import { CurrencyProvider } from './context/CurrencyContext';
 
@@ -42,6 +43,7 @@ function App() {
               <Route path="expenses"  element={<Expenses />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="ai"        element={<AIPage />} />
+              <Route path="history"   element={<ChatHistory />} />
               <Route path="settings"  element={<Settings />} />
             </Route>
           ) : (
